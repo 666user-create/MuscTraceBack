@@ -89,4 +89,13 @@ public class PlatformVersion {
             fetchedAt = LocalDateTime.now();
         }
     }
+
+    /** 置信度排序值:HIGH=3 > MEDIUM=2 > LOW=1(用于 Top 3 聚合排序) */
+    public int getConfidenceRank() {
+        return switch (confidence) {
+            case HIGH -> 3;
+            case MEDIUM -> 2;
+            case LOW -> 1;
+        };
+    }
 }
