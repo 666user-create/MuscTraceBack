@@ -126,6 +126,42 @@ public class IdentityResolutionService {
         return result;
     }
 
+    /**
+     * 本地建档(零平台请求):歌单接口返回的歌名/歌手可信,
+     * 直接规范化生成/复用真实身份,不做平台搜索。
+     *
+     * 这是异步注入流程的身份解析主路径——把 200 首歌的搜索请求全部省掉,
+     * 平台搜索只保留给"跨平台版本发现"阶段。
+     *
+     * @param rawTitle  原始歌名
+     * @param rawArtist 原始歌手
+     * @return 身份 + HIGH 置信度(歌单来源数据可信)
+     */
+    public Resolution resolveLocal(String rawTitle, String rawArtist) {
+        String normTitle = TextNormalizer.normalizeTitle(rawTitle);
+        String normArtist = TextNormalizer.normalizeArtist(rawArtist);
+        if (normTitle.isEmpty()) {
+            return new Resolution(null, Confidence.LOW, VersionType.OTHER, List.of("歌名为空"));
+        }
+
+        // 1. 已存在相同身份直接复用
+        Optional<CanonicalTrack> existing = canonicalTrackRepository
+                .findByNormalizedTitleAndNormalizedArtist(normTitle, normArtist);
+        if (existing.isPresent()) {
+            return new Resolution(existing.get(), Confidence.HIGH, VersionType.ORIGINAL,
+                    List.of("命中本地身份库"));
+        }
+
+        // 2. 直接建档(歌单接口的数据就是用户收藏的版本)
+        CanonicalTrack track = CanonicalTrack.builder()
+                .normalizedTitle(normTitle)
+                .normalizedArtist(normArtist)
+                .build();
+        CanonicalTrack saved = canonicalTrackRepository.save(track);
+        return new Resolution(saved, Confidence.HIGH, VersionType.ORIGINAL,
+                List.of("本地建档(歌单数据)"));
+    }
+
     /** 查询已保存的真实身份(按规范化键) */
     public Optional<CanonicalTrack> findByIdentity(String normalizedTitle, String normalizedArtist) {
         return canonicalTrackRepository.findByNormalizedTitleAndNormalizedArtist(normalizedTitle, normalizedArtist);

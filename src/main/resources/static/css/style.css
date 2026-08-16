@@ -361,6 +361,68 @@ main { position: relative; z-index: 2; }
     background: linear-gradient(90deg, var(--line), transparent);
 }
 
+/* ============ 追溯进度条 ============ */
+.progress-wrap {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 28px;
+    margin-bottom: 24px;
+}
+
+.progress-info {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+}
+
+.progress-label {
+    font-size: 14.5px;
+    color: var(--text-soft);
+}
+
+.progress-num {
+    font-family: var(--mono);
+    font-size: 15px;
+    color: var(--accent);
+}
+
+.progress-bar {
+    height: 12px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-deep), var(--accent));
+    border-radius: 999px;
+    transition: width 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
+    position: relative;
+}
+
+.progress-fill::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.25), transparent);
+    animation: shimmer 1.6s infinite;
+}
+
+@keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+.progress-hint {
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-top: 12px;
+    line-height: 1.6;
+}
+
 /* ============ 体检报告 ============ */
 .report-box {
     background: var(--card);

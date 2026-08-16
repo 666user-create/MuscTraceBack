@@ -101,11 +101,12 @@
         }
     }
 
-    /* ---------- 歌单注入 ---------- */
-    async function importPlaylist(url) {
-        setLoading(true, "正在解析歌单并追溯歌曲身份…");
+    /* ---------- 歌单注入(异步:提交后轮询进度) ---------- */
+    let progressTimer = null;
+    let currentPlaylistId = null;
 
-        // 用 fetch 的进度事件展示阶段(注入本身是同步请求)
+    async function importPlaylist(url) {
+        setLoading(true, "正在解析歌单…");
         try {
             const res = await fetch("/api/playlists/import", {
                 method: "POST",
@@ -113,12 +114,13 @@
                 body: JSON.stringify({ url }),
             });
             const data = await res.json().catch(() => ({}));
-
             if (!res.ok) {
                 throw new Error(data.error || ("请求失败 HTTP " + res.status));
             }
-            renderResult(data);
-            showToast("歌单注入完成:共 " + (data.entryCount || 0) + " 首歌曲", "info");
+            currentPlaylistId = data.id;
+            showToast("歌单已接收(共 " + (data.entryCount || 0) + " 首),后台追溯中…", "info");
+            showProgress(data);
+            startPolling(data.id);
         } catch (err) {
             showToast(err.message || "注入失败,请检查链接", "error");
         } finally {
@@ -126,7 +128,70 @@
         }
     }
 
-    /* ---------- 渲染结果 ---------- */
+    /* ---------- 进度展示 + 轮询 ---------- */
+    function showProgress(data) {
+        els.result.hidden = false;
+        els.resultTitle.textContent =
+            (data.title || "歌单") + " · " + (PLATFORM_LABEL[data.platform] || data.platform);
+        els.resultList.innerHTML = "";
+        els.report.hidden = true;
+
+        const bar = document.createElement("div");
+        bar.className = "progress-wrap";
+        bar.innerHTML =
+            '<div class="progress-info">' +
+            '  <span class="progress-label">正在后台追溯歌曲身份与版本…</span>' +
+            '  <span class="progress-num" id="progressNum">0%</span>' +
+            "</div>" +
+            '<div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>' +
+            '<p class="progress-hint">后台处理中,可离开本页;应用重启后自动续跑。' +
+            '遇平台限流会自动暂停并恢复,请耐心等待。</p>';
+        els.resultList.appendChild(bar);
+    }
+
+    function updateProgress(p) {
+        const num = document.getElementById("progressNum");
+        const fill = document.getElementById("progressFill");
+        if (num) num.textContent = p.percent + "% (" + p.processedCount + "/" + p.entryCount + ")";
+        if (fill) fill.style.width = p.percent + "%";
+    }
+
+    function startPolling(playlistId) {
+        clearInterval(progressTimer);
+        progressTimer = setInterval(async () => {
+            try {
+                const res = await fetch("/api/playlists/" + playlistId + "/progress");
+                if (!res.ok) {
+                    clearInterval(progressTimer);
+                    showToast("进度查询失败,请刷新页面", "error");
+                    return;
+                }
+                const p = await res.json();
+                updateProgress(p);
+                if (p.status === "COMPLETED") {
+                    clearInterval(progressTimer);
+                    showToast("追溯完成!", "info");
+                    loadPlaylistDetail(playlistId);
+                }
+            } catch (err) {
+                // 网络抖动忽略,下轮继续
+            }
+        }, 1500);
+    }
+
+    /** 完成后加载完整歌单详情并渲染 */
+    async function loadPlaylistDetail(playlistId) {
+        try {
+            const res = await fetch("/api/playlists/" + playlistId);
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            const data = await res.json();
+            renderResult(data);
+        } catch (err) {
+            showToast("歌单详情加载失败: " + err.message, "error");
+        }
+    }
+
+    /* ---------- 渲染结果(完整详情) ---------- */
     function renderResult(summary) {
         els.result.hidden = false;
         els.resultTitle.textContent =

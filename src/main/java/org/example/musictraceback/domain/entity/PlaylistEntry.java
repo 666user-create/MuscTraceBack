@@ -65,4 +65,12 @@ public class PlaylistEntry {
     /** 平台返回的原始元数据(JSON 字符串,便于排查) */
     @Column(name = "raw_metadata_json", columnDefinition = "CLOB")
     private String rawMetadataJson;
+
+    /**
+     * 是否已处理(身份解析+版本发现完成,无论成败)。
+     * 用于异步注入进度统计与断点续跑。
+     */
+    @Column(name = "processed", nullable = false)
+    @Builder.Default
+    private boolean processed = false;
 }

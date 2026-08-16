@@ -41,21 +41,49 @@ public class PlaylistController {
     public record ImportRequest(@NotBlank(message = "歌单链接不能为空") String url) {
     }
 
-    /** 注入歌单(同步执行;大批量歌单的异步进度在后续版本引入) */
+    /** 注入歌单:同步建档,异步处理,立即返回(前端轮询进度) */
     @PostMapping("/import")
     public ResponseEntity<?> importPlaylist(@Valid @RequestBody ImportRequest request) {
         try {
             Snapshot snapshot = injectionService.inject(request.url());
-            if ("FAILED".equals(snapshot.getStatus())) {
-                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
-                        .body(Map.of("error", "歌单解析失败,请检查链接是否有效"));
-            }
             return ResponseEntity.ok(toSummary(snapshot));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                    .body(Map.of("error", e.getMessage()));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "注入失败: " + e.getMessage()));
+        }
+    }
+
+    /** 处理进度(轻量接口,前端轮询):status + processedCount/entryCount/percent */
+    @GetMapping("/{id}/progress")
+    public ResponseEntity<?> getProgress(@PathVariable Long id) {
+        Snapshot snapshot = injectionService.findById(id).orElse(null);
+        if (snapshot == null) {
+            return ResponseEntity.notFound().build();
+        }
+        long entryCount = injectionService.entryCount(id);
+        long processed = injectionService.processedCount(id);
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", id);
+        m.put("status", snapshot.getStatus());
+        m.put("entryCount", entryCount);
+        m.put("processedCount", processed);
+        m.put("percent", entryCount == 0 ? 100 : Math.round((double) processed / entryCount * 100));
+        return ResponseEntity.ok(m);
+    }
+
+    /** 手动恢复处理(风控暂停超时/重启后) */
+    @PostMapping("/{id}/resume")
+    public ResponseEntity<?> resume(@PathVariable Long id) {
+        try {
+            injectionService.resume(id);
+            return ResponseEntity.ok(Map.of("id", id, "status", "PROCESSING"));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
 
@@ -192,7 +220,11 @@ public class PlaylistController {
         m.put("title", s.getTitle());
         m.put("status", s.getStatus());
         m.put("createdAt", s.getCreatedAt());
-        m.put("entryCount", s.getPlaylistEntries().size());
+        long total = injectionService.entryCount(s.getId());
+        long processed = injectionService.processedCount(s.getId());
+        m.put("entryCount", total);
+        m.put("processedCount", processed);
+        m.put("percent", total == 0 ? 100 : Math.round((double) processed / total * 100));
         return m;
     }
 
