@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MusicTraceBack · 歌单身份追溯</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='46' fill='%230b0d10' stroke='%23d9a441' stroke-width='6'/%3E%3Ccircle cx='50' cy='50' r='14' fill='%23d9a441'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<!-- 噪点纹理层 -->
+<div class="grain" aria-hidden="true"></div>
+
+<header class="topbar reveal">
+    <div class="brand">
+        <svg class="vinyl-mark" viewBox="0 0 100 100" aria-hidden="true">
+            <circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="5"/>
+            <circle cx="50" cy="50" r="36" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="2 6"/>
+            <circle cx="50" cy="50" r="26" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="2 6"/>
+            <circle cx="50" cy="50" r="10" fill="currentColor"/>
+        </svg>
+        <span class="brand-name">MusicTrace<span class="brand-accent">Back</span></span>
+    </div>
+    <div class="server-pill" id="serverPill" data-state="checking">
+        <span class="dot"></span>
+        <span class="label">正在检测服务…</span>
+    </div>
+</header>
+
+<main>
+    <!-- Hero -->
+    <section class="hero">
+        <div class="hero-copy">
+            <p class="eyebrow reveal">歌单身份追溯工具 · 本地部署</p>
+            <h1 class="reveal">找回歌单里<br><em>消失的歌</em></h1>
+            <p class="sub reveal">
+                跨网易云、QQ 音乐、酷狗,追溯每首歌的真实身份与所有版本。
+                下架了?被替换了?这里告诉你它原来是什么、现在还能在哪听。
+            </p>
+
+            <form class="trace-form reveal" id="traceForm">
+                <div class="input-wrap">
+                    <svg class="link-icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"
+                              fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"
+                              fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                    <input type="text" id="playlistUrl" placeholder="粘贴歌单分享链接,如 https://music.163.com/#/playlist?id=…" autocomplete="off">
+                </div>
+                <button type="submit" class="btn-primary" id="traceBtn">
+                    <span class="btn-text">开始追溯</span>
+                    <svg class="arrow" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+            </form>
+
+            <div class="platform-chips reveal">
+                <span class="chip">网易云音乐</span>
+                <span class="chip">QQ 音乐</span>
+                <span class="chip">酷狗音乐</span>
+                <span class="chip-note">不依赖单一平台 · 版本互通</span>
+            </div>
+        </div>
+
+        <div class="hero-visual reveal" aria-hidden="true">
+            <div class="record">
+                <svg viewBox="0 0 200 200">
+                    <circle cx="100" cy="100" r="96" fill="#111419"/>
+                    <circle cx="100" cy="100" r="96" fill="none" stroke="#23282f" stroke-width="1"/>
+                    <circle cx="100" cy="100" r="82" fill="none" stroke="#1a1e24" stroke-width="2"/>
+                    <circle cx="100" cy="100" r="66" fill="none" stroke="#1a1e24" stroke-width="2"/>
+                    <circle cx="100" cy="100" r="50" fill="none" stroke="#1a1e24" stroke-width="2"/>
+                    <circle cx="100" cy="100" r="34" fill="none" stroke="#1a1e24" stroke-width="2"/>
+                    <circle cx="100" cy="100" r="22" fill="#d9a441"/>
+                    <circle cx="100" cy="100" r="6" fill="#0b0d10"/>
+                </svg>
+            </div>
+            <div class="eq" id="eq">
+                <span style="--i:0"></span><span style="--i:1"></span><span style="--i:2"></span>
+                <span style="--i:3"></span><span style="--i:4"></span><span style="--i:5"></span>
+                <span style="--i:6"></span><span style="--i:7"></span><span style="--i:8"></span>
+                <span style="--i:9"></span><span style="--i:10"></span><span style="--i:11"></span>
+                <span style="--i:12"></span><span style="--i:13"></span><span style="--i:14"></span>
+                <span style="--i:15"></span>
+            </div>
+        </div>
+    </section>
+
+    <!-- 系统状态 -->
+    <section class="status-section">
+        <h2 class="section-title reveal">系统状态 <span class="section-line"></span></h2>
+        <div class="status-grid">
+            <div class="status-card reveal" data-card="server">
+                <div class="status-card-head">
+                    <span class="status-ico" data-ico="server">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="3" y="13" width="18" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 7.5h.01M7 16.5h.01" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+                    </span>
+                    <span class="pill" data-pill="server">…</span>
+                </div>
+                <p class="status-name">后端服务</p>
+                <p class="status-detail" data-detail="server">连接中…</p>
+            </div>
+            <div class="status-card reveal" data-card="db">
+                <div class="status-card-head">
+                    <span class="status-ico" data-ico="db">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+                    </span>
+                    <span class="pill" data-pill="db">…</span>
+                </div>
+                <p class="status-name">数据存储</p>
+                <p class="status-detail" data-detail="db">连接中…</p>
+            </div>
+            <div class="status-card reveal" data-card="time">
+                <div class="status-card-head">
+                    <span class="status-ico" data-ico="time">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+                    </span>
+                    <span class="pill" data-pill="time">UTC+8</span>
+                </div>
+                <p class="status-name">服务时间</p>
+                <p class="status-detail" data-detail="time">连接中…</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- 特性 -->
+    <section class="features-section">
+        <h2 class="section-title reveal">它能做什么 <span class="section-line"></span></h2>
+        <div class="features-grid">
+            <article class="feature-card reveal">
+                <span class="feature-num">01</span>
+                <h3>跨平台追溯</h3>
+                <p>同一首歌在网易云、QQ、酷狗分别是什么版本,一眼看清。平台割裂不再是问题。</p>
+            </article>
+            <article class="feature-card reveal">
+                <span class="feature-num">02</span>
+                <h3>Top 3 版本</h3>
+                <p>每个真实身份聚合所有候选版本,按热度挑出前三,原版还是翻唱,系统会标注置信度。</p>
+            </article>
+            <article class="feature-card reveal">
+                <span class="feature-num">03</span>
+                <h3>下架追查</h3>
+                <p>歌单里消失或被替换的歌,告诉你它原来是什么、现在还能在哪里听。</p>
+            </article>
+            <article class="feature-card reveal">
+                <span class="feature-num">04</span>
+                <h3>本地部署</h3>
+                <p>数据只存在你自己的机器上,歌单、快照、确认记录全部本地保存,隐私无忧。</p>
+            </article>
+        </div>
+    </section>
+</main>
+
+<footer class="footer reveal">
+    <p>MusicTraceBack · 本地运行 · 数据不出本机</p>
+    <p class="footer-muted">歌单解析与跨平台追溯功能开发中,当前版本已完成基础架构与系统自检。</p>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="js/app.js"></script>
+</body>
+</html>

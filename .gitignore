@@ -4,6 +4,14 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
+### 本地数据与依赖(不入库) ###
+# H2 数据库文件(本地用户数据)
+data/
+# 本机开发用的 Maven 本地仓库副本(项目内 .m2repo)
+.m2repo/
+# 本机 settings 覆盖(含本地仓库路径)
+settings-local.xml
+
 ### STS ###
 .apt_generated
 .classpath
