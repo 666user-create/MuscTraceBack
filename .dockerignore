@@ -1,0 +1,8 @@
+# 本地构建产物(不入库)
+target/
+
+# 本地数据(H2 数据库文件)
+data/
+
+# Docker 数据卷(如果改用 bind mount)
+.docker-data/

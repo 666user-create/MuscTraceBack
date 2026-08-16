@@ -208,6 +208,42 @@ class PlaylistApiTests {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    void getReport_returnsHealthStats() throws Exception {
+        when(neteaseAdapter.platformId()).thenReturn("netease");
+        when(neteaseAdapter.parsePlaylist(anyString())).thenReturn(List.of(
+                new PlaylistEntryRaw("1001", "晴天", "周杰伦", "叶惠美"),
+                new PlaylistEntryRaw("1002", "找不到的歌", "某歌手", "某专辑")));
+        // 第一首可解析,第二首无候选(下架)
+        when(neteaseAdapter.search("晴天", "周杰伦")).thenReturn(List.of(
+                new TrackCandidate("2001", "晴天", "周杰伦", "叶惠美", 269, 100L, "https://x/2001")));
+        when(neteaseAdapter.search("找不到的歌", "某歌手")).thenReturn(List.of());
+        when(neteaseAdapter.playUrl(any())).thenReturn("https://x/2001");
+
+        String body = mockMvc.perform(post("/api/playlists/import")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"url\":\"https://music.163.com/#/playlist?id=3778678\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        long playlistId = extractId(body);
+
+        mockMvc.perform(get("/api/playlists/" + playlistId + "/report"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCounts.TOTAL").value(2))
+                .andExpect(jsonPath("$.statusCounts.NORMAL").value(1))
+                .andExpect(jsonPath("$.statusCounts.DELISTED").value(1))
+                .andExpect(jsonPath("$.healthScore").value(50))
+                .andExpect(jsonPath("$.issues.length()").value(1))
+                .andExpect(jsonPath("$.issues[0].status").value("DELISTED"))
+                .andExpect(jsonPath("$.issues[0].title").value("找不到的歌"));
+    }
+
+    @Test
+    void getReport_notFound_returns404() throws Exception {
+        mockMvc.perform(get("/api/playlists/99999/report"))
+                .andExpect(status().isNotFound());
+    }
+
     private long extractId(String json) {
         return Long.parseLong(json.replaceAll(".*\"id\":(\\d+).*", "$1"));
     }

@@ -1,0 +1,12 @@
+services:
+  musictraceback:
+    build: .
+    container_name: musictraceback
+    ports:
+      - "8080:8080"
+    volumes:
+      - musictraceback-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  musictraceback-data:

@@ -361,6 +361,89 @@ main { position: relative; z-index: 2; }
     background: linear-gradient(90deg, var(--line), transparent);
 }
 
+/* ============ 体检报告 ============ */
+.report-box {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 24px;
+    margin-bottom: 24px;
+}
+
+.report-title {
+    font-family: var(--serif);
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: var(--accent);
+}
+
+.report-health {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.health-bar {
+    flex: 1;
+    height: 10px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.health-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-deep), var(--accent));
+    border-radius: 999px;
+    transition: width 0.8s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.health-num {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--accent);
+    white-space: nowrap;
+}
+
+.report-stats {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+}
+
+.rstat {
+    font-size: 12.5px;
+    padding: 5px 13px;
+    border-radius: 999px;
+    border: 1px solid var(--line-soft);
+}
+
+.rstat.ok { color: var(--good); border-color: rgba(111, 191, 143, 0.35); }
+.rstat.warn { color: var(--warn); border-color: rgba(217, 164, 65, 0.35); }
+.rstat.bad { color: var(--bad); border-color: rgba(207, 106, 94, 0.35); }
+.rstat.other { color: #7fb3e0; border-color: rgba(127, 179, 224, 0.35); }
+
+.report-sub {
+    font-size: 13.5px;
+    color: var(--text-soft);
+    margin: 8px 0;
+}
+
+.report-issue {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.report-issue:last-child { border-bottom: none; }
+
+.issue-title { font-size: 13.5px; }
+
 /* ============ 追溯结果 ============ */
 .result-section {
     max-width: 1280px;

@@ -110,6 +110,79 @@ public class PlaylistController {
         }
     }
 
+    /** 歌单体检报告(FR-6):状态统计 + 迁移建议 */
+    @GetMapping("/{id}/report")
+    public ResponseEntity<?> getReport(@PathVariable Long id) {
+        Snapshot snapshot = injectionService.findDetail(id).orElse(null);
+        if (snapshot == null) {
+            return ResponseEntity.notFound().build();
+        }
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("playlistId", snapshot.getId());
+        m.put("title", snapshot.getTitle());
+        m.put("platform", snapshot.getPlatform());
+
+        // 状态统计
+        long total = snapshot.getPlaylistEntries().size();
+        long normal = 0, delisted = 0, replaced = 0, otherPlatform = 0;
+        long high = 0, medium = 0, low = 0;
+        for (PlaylistEntry e : snapshot.getPlaylistEntries()) {
+            switch (e.getEntryStatus()) {
+                case NORMAL -> normal++;
+                case DELISTED -> delisted++;
+                case REPLACED -> replaced++;
+                case OTHER_PLATFORM -> otherPlatform++;
+            }
+            switch (e.getConfidence()) {
+                case HIGH -> high++;
+                case MEDIUM -> medium++;
+                case LOW -> low++;
+            }
+        }
+
+        Map<String, Object> statusCounts = new LinkedHashMap<>();
+        statusCounts.put("TOTAL", total);
+        statusCounts.put("NORMAL", normal);
+        statusCounts.put("DELISTED", delisted);
+        statusCounts.put("REPLACED", replaced);
+        statusCounts.put("OTHER_PLATFORM", otherPlatform);
+        m.put("statusCounts", statusCounts);
+
+        Map<String, Object> confidenceCounts = new LinkedHashMap<>();
+        confidenceCounts.put("HIGH", high);
+        confidenceCounts.put("MEDIUM", medium);
+        confidenceCounts.put("LOW", low);
+        m.put("confidenceCounts", confidenceCounts);
+
+        // 健康度:正常曲目占比(0-100)
+        m.put("healthScore", total == 0 ? 0 : Math.round((double) normal / total * 100));
+
+        // 问题曲目清单(下架/被替换,含替代平台提示)
+        List<Map<String, Object>> issues = snapshot.getPlaylistEntries().stream()
+                .filter(e -> e.getEntryStatus() == org.example.musictraceback.domain.enums.EntryStatus.DELISTED
+                        || e.getEntryStatus() == org.example.musictraceback.domain.enums.EntryStatus.REPLACED)
+                .map(e -> {
+                    Map<String, Object> im = new LinkedHashMap<>();
+                    im.put("entryId", e.getId());
+                    im.put("title", e.getRawTitle());
+                    im.put("artist", e.getRawArtist());
+                    im.put("status", e.getEntryStatus());
+                    im.put("confidence", e.getConfidence());
+                    if (e.getCanonicalTrack() != null) {
+                        im.put("canonicalTrackId", e.getCanonicalTrack().getId());
+                        im.put("platforms", e.getCanonicalTrack().getPlatformVersions().stream()
+                                .map(v -> v.getPlatform())
+                                .distinct()
+                                .toList());
+                    }
+                    return im;
+                })
+                .toList();
+        m.put("issues", issues);
+
+        return ResponseEntity.ok(m);
+    }
+
     /** ===== DTO 组装(避免直接序列化 JPA 实体) ===== */
 
     private Map<String, Object> toSummary(Snapshot s) {

@@ -19,6 +19,8 @@
         resultTitle: $("#resultTitle"),
         resultList: $("#resultList"),
         loading: $("#loadingSection"),
+        report: $("#reportSection"),
+        reportBody: $("#reportBody"),
         cards: {
             server: { pill: $('[data-pill="server"]'), detail: $('[data-detail="server"]') },
             db: { pill: $('[data-pill="db"]'), detail: $('[data-detail="db"]') },
@@ -128,8 +130,11 @@
     function renderResult(summary) {
         els.result.hidden = false;
         els.resultTitle.textContent =
-            (summary.title || "歌单") + " · " + (summary.platform === "netease" ? "网易云" : summary.platform);
+            (summary.title || "歌单") + " · " + (PLATFORM_LABEL[summary.platform] || summary.platform);
         els.resultList.innerHTML = "";
+        els.report.hidden = false;
+        els.reportBody.innerHTML = '<p class="versions-loading">正在生成体检报告…</p>';
+        loadReport(summary.id);
 
         // 统计
         const entries = summary.entries || [];
@@ -250,6 +255,48 @@
         }
     }
 
+    /* ---------- 体检报告 ---------- */
+    async function loadReport(playlistId) {
+        try {
+            const res = await fetch("/api/playlists/" + playlistId + "/report");
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            const r = await res.json();
+            const sc = r.statusCounts || {};
+            const health = r.healthScore != null ? r.healthScore : 0;
+
+            let html =
+                '<div class="report-health">' +
+                '  <div class="health-bar"><div class="health-fill" style="width:' + health + '%"></div></div>' +
+                '  <span class="health-num">健康度 ' + health + '%</span>' +
+                "</div>" +
+                '<div class="report-stats">' +
+                '  <span class="rstat ok">正常 ' + (sc.NORMAL || 0) + "</span>" +
+                '  <span class="rstat warn">被替换 ' + (sc.REPLACED || 0) + "</span>" +
+                '  <span class="rstat bad">已下架 ' + (sc.DELISTED || 0) + "</span>" +
+                '  <span class="rstat other">他平台可听 ' + (sc.OTHER_PLATFORM || 0) + "</span>" +
+                "</div>";
+
+            const issues = r.issues || [];
+            if (issues.length > 0) {
+                html += '<p class="report-sub">问题曲目(' + issues.length + "):</p>";
+                issues.forEach((i) => {
+                    const stLabel = i.status === "DELISTED" ? "已下架" : "被替换";
+                    html +=
+                        '<div class="report-issue">' +
+                        '  <span class="tag st-' + i.status + '">' + stLabel + "</span>" +
+                        '  <span class="issue-title">' + esc(i.title) + " - " + esc(i.artist || "未知歌手") + "</span>" +
+                        "</div>";
+                });
+            } else {
+                html += '<p class="report-sub">🎉 未发现问题曲目,歌单状态良好。</p>';
+            }
+            els.reportBody.innerHTML = html;
+        } catch (err) {
+            els.reportBody.innerHTML =
+                '<p class="versions-loading">报告生成失败:' + esc(err.message) + "</p>";
+        }
+    }
+
     /* ---------- 用户确认 ---------- */
     async function confirmVersion(entryId, versionType, box) {
         try {
@@ -289,6 +336,7 @@
     function init() {
         els.form.addEventListener("submit", handleSubmit);
         els.result.hidden = true;
+        els.report.hidden = true;
         checkHealth();
         setInterval(checkHealth, 60000);
     }
