@@ -85,7 +85,7 @@
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  Web 层(Thymeleaf 服务端渲染页面 + REST 接口)      │
+│  Web 层(静态前端 HTML/CSS/JS + Ajax + REST 接口)  │
 ├─────────────────────────────────────────────────┤
 │  应用层(用例服务)                                 │
 │    PlaylistInjectionService   歌单注入            │
@@ -248,7 +248,7 @@ USER_CONFIRMATION(id, playlist_entry_id, canonical_track_id,
 3. Top 3 版本展示(版本类型 + 热度 + 链接)。
 4. 下架 / 替换检测与追查("原来是什么 + 去哪听")。
 5. 用户确认沉淀(第 4 层兜底)。
-6. 最简 Web UI(Thymeleaf):输入链接 → 进度 → 结果列表 → 确认。
+6. 最简 Web UI(HTML/CSS/JS + Ajax):输入链接 → 进度 → 结果列表 → 确认。
 
 **不做**(YAGNI):
 - 音频播放/下载、账号体系、多用户、复杂图表报表、移动端、机器学习。
@@ -269,7 +269,7 @@ USER_CONFIRMATION(id, playlist_entry_id, canonical_track_id,
 |---|---|---|
 | 语言/框架 | Java 17 + Spring Boot 4.1(现有) | 已初始化,生态成熟 |
 | 构建 | Maven(现有) | 已配置 |
-| Web 页面 | Thymeleaf 服务端渲染 | 免学前端框架,适合单人开发 |
+| Web 页面 | 原生 HTML/CSS/JS + Ajax(fetch),静态资源置于 `src/main/resources/static/`,Spring Boot 自动托管 | 零前端构建工具链,后端提供 REST API,前后端 JSON 交互;Vue(CDN 或构建)可作后续平滑升级选项 |
 | HTTP 客户端 | Spring RestClient(或 WebClient) | 框架内置 |
 | 数据库 | H2(file 模式) | 内嵌、零部署、支持 SQL |
 | 缓存 | Caffeine 或简单 Map | 进程内即可 |
