@@ -53,8 +53,26 @@ class PlaylistApiTests {
     @Autowired
     private UserConfirmationRepository userConfirmationRepository;
 
-    @MockitoBean
+    @Autowired
+    private org.example.musictraceback.infrastructure.cache.SearchCache searchCache;
+
+    @MockitoBean(name = "netEaseAdapter")
     private PlatformAdapter neteaseAdapter;
+
+    @MockitoBean(name = "QQMusicAdapter")
+    private PlatformAdapter qqAdapter;
+
+    @MockitoBean(name = "kugouAdapter")
+    private PlatformAdapter kugouAdapter;
+
+    @BeforeEach
+    void setUp() {
+        // 版本发现会遍历全部适配器;未注入的 QQ/酷狗默认返回空,避免真实网络
+        when(qqAdapter.platformId()).thenReturn("qq");
+        when(qqAdapter.search(any(), any())).thenReturn(List.of());
+        when(kugouAdapter.platformId()).thenReturn("kugou");
+        when(kugouAdapter.search(any(), any())).thenReturn(List.of());
+    }
 
     @BeforeEach
     void cleanDatabase() {
@@ -65,6 +83,8 @@ class PlaylistApiTests {
         playlistEntryRepository.deleteAll();
         canonicalTrackRepository.deleteAll();
         snapshotRepository.deleteAll();
+        // 清空搜索缓存,避免测试间的空结果污染
+        searchCache.clear();
     }
 
     @Test
@@ -142,6 +162,50 @@ class PlaylistApiTests {
     void getPlaylist_notFound_returns404() throws Exception {
         mockMvc.perform(get("/api/playlists/99999"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void confirmTrack_updatesEntry() throws Exception {
+        when(neteaseAdapter.platformId()).thenReturn("netease");
+        when(neteaseAdapter.parsePlaylist(anyString())).thenReturn(List.of(
+                new PlaylistEntryRaw("1001", "晴天", "周杰伦", "叶惠美")));
+        // 无候选 → 身份解析 LOW → DELISTED,供用户确认
+        when(neteaseAdapter.search(any(), any())).thenReturn(List.of());
+
+        String body = mockMvc.perform(post("/api/playlists/import")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"url\":\"https://music.163.com/#/playlist?id=3778678\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        long playlistId = extractId(body);
+
+        String detailBody = mockMvc.perform(get("/api/playlists/" + playlistId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entries[0].status").value("DELISTED"))
+                .andExpect(jsonPath("$.entries[0].confidence").value("LOW"))
+                .andReturn().getResponse().getContentAsString();
+        long entryId = extractFirstEntryId(detailBody);
+
+        // 用户确认:这是原版
+        mockMvc.perform(post("/api/playlists/tracks/" + entryId + "/confirm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"versionType\":\"ORIGINAL\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.versionType").value("ORIGINAL"))
+                .andExpect(jsonPath("$.playlistEntryId").value(entryId));
+
+        // 确认后条目置信度提升为 HIGH
+        mockMvc.perform(get("/api/playlists/" + playlistId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entries[0].confidence").value("HIGH"));
+    }
+
+    @Test
+    void confirmTrack_missingVersionType_badRequest() throws Exception {
+        mockMvc.perform(post("/api/playlists/tracks/1/confirm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
     }
 
     private long extractId(String json) {

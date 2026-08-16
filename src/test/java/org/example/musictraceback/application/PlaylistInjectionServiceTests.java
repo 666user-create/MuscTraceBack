@@ -47,9 +47,11 @@ class PlaylistInjectionServiceTests {
         adapter = mock(PlatformAdapter.class);
         when(adapter.platformId()).thenReturn("netease");
         IdentityResolutionService identity =
-                new IdentityResolutionService(canonicalTrackRepository, List.of(adapter));
+                new IdentityResolutionService(canonicalTrackRepository,
+                        new org.example.musictraceback.infrastructure.cache.SearchCache(60000),
+                        List.of(adapter));
         VersionDiscoveryService discovery =
-                new VersionDiscoveryService(platformVersionRepository, List.of(adapter));
+                new VersionDiscoveryService(platformVersionRepository, identity, List.of(adapter));
         injectionService = new PlaylistInjectionService(
                 snapshotRepository, identity, discovery, List.of(adapter));
     }

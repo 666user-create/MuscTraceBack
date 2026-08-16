@@ -27,11 +27,14 @@ public class VersionDiscoveryService {
     private static final int TOP_N = 3;
 
     private final PlatformVersionRepository platformVersionRepository;
+    private final IdentityResolutionService identityResolutionService;
     private final List<PlatformAdapter> adapters;
 
     public VersionDiscoveryService(PlatformVersionRepository platformVersionRepository,
+                                   IdentityResolutionService identityResolutionService,
                                    List<PlatformAdapter> adapters) {
         this.platformVersionRepository = platformVersionRepository;
+        this.identityResolutionService = identityResolutionService;
         this.adapters = adapters;
     }
 
@@ -55,7 +58,8 @@ public class VersionDiscoveryService {
         List<PlatformVersion> all = new ArrayList<>();
 
         for (PlatformAdapter adapter : adapters) {
-            List<TrackCandidate> candidates = adapter.search(sourceTitle, sourceArtist);
+            // 复用身份解析的搜索缓存(同一关键词不重复请求平台)
+            List<TrackCandidate> candidates = identityResolutionService.searchCached(adapter, sourceTitle, sourceArtist);
             for (TrackCandidate c : candidates) {
                 String key = adapter.platformId() + "::" + c.platformTrackId();
                 if (existingKeys.contains(key)) {

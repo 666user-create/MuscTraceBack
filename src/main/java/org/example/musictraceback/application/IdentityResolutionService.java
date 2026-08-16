@@ -7,6 +7,7 @@ import org.example.musictraceback.domain.enums.Confidence;
 import org.example.musictraceback.domain.enums.VersionType;
 import org.example.musictraceback.domain.identity.TextNormalizer;
 import org.example.musictraceback.domain.identity.VersionScorer;
+import org.example.musictraceback.infrastructure.cache.SearchCache;
 import org.example.musictraceback.infrastructure.repository.CanonicalTrackRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,9 +20,8 @@ import java.util.Optional;
 /**
  * 身份解析服务(设计文档 FR-2 / 9 节第 1-3 层)。
  *
- * 流程:歌单条目 → 规范化 → 平台搜索 → 打分 → 生成/复用真实身份。
- * 输出:CanonicalTrack + 置信度。置信度分级由打分结果决定,
- * 中/低置信条目由前端引导用户确认(第 4 层兜底,见 UserConfirmationService)。
+ * 流程:歌单条目 → 规范化 → 来源平台搜索 → 打分 → 生成/复用真实身份。
+ * 搜索走 SearchCache 缓存:版本发现阶段会复用同一结果,减少请求量。
  */
 @Service
 public class IdentityResolutionService {
@@ -29,13 +29,15 @@ public class IdentityResolutionService {
     private static final Logger log = LoggerFactory.getLogger(IdentityResolutionService.class);
 
     private final CanonicalTrackRepository canonicalTrackRepository;
-    private final PlatformAdapter primaryAdapter;
+    private final SearchCache searchCache;
+    private final List<PlatformAdapter> adapters;
 
     public IdentityResolutionService(CanonicalTrackRepository canonicalTrackRepository,
+                                     SearchCache searchCache,
                                      List<PlatformAdapter> adapters) {
         this.canonicalTrackRepository = canonicalTrackRepository;
-        // 身份解析用第一个可用平台(后续可改为"按平台优先级"策略)
-        this.primaryAdapter = adapters.isEmpty() ? null : adapters.get(0);
+        this.searchCache = searchCache;
+        this.adapters = adapters;
     }
 
     /** 解析结果:身份 + 置信度 + 判定版本类型 + 依据 */
@@ -50,14 +52,16 @@ public class IdentityResolutionService {
     /**
      * 解析一个歌单条目的真实身份。
      *
-     * @param rawTitle  原始歌名
-     * @param rawArtist 原始歌手
+     * @param rawTitle         原始歌名
+     * @param rawArtist        原始歌手
+     * @param sourcePlatformId 歌单来源平台(优先用该平台搜索身份)
      * @return 解析结果;无法解析(无适配器或无候选)时 track 为 null
      */
-    public Resolution resolve(String rawTitle, String rawArtist) {
-        if (primaryAdapter == null) {
-            log.warn("无可用平台适配器,跳过身份解析");
-            return new Resolution(null, Confidence.LOW, VersionType.OTHER, List.of());
+    public Resolution resolve(String rawTitle, String rawArtist, String sourcePlatformId) {
+        PlatformAdapter sourceAdapter = findAdapter(sourcePlatformId);
+        if (sourceAdapter == null) {
+            log.warn("无可用平台适配器({}),跳过身份解析", sourcePlatformId);
+            return new Resolution(null, Confidence.LOW, VersionType.OTHER, List.of("平台适配器不可用"));
         }
 
         String normTitle = TextNormalizer.normalizeTitle(rawTitle);
@@ -74,15 +78,8 @@ public class IdentityResolutionService {
                     List.of("命中本地身份库"));
         }
 
-        // 2. 平台搜索候选(风控时抛异常,区别于"无此歌")
-        List<TrackCandidate> candidates;
-        try {
-            candidates = primaryAdapter.search(rawTitle, rawArtist);
-        } catch (RuntimeException e) {
-            log.warn("平台风控/异常,跳过身份解析 {} - {}: {}", rawTitle, rawArtist, e.getMessage());
-            return new Resolution(null, Confidence.LOW, VersionType.OTHER,
-                    List.of("平台限流,请稍后重试"));
-        }
+        // 2. 来源平台搜索候选(走 SearchCache 缓存)
+        List<TrackCandidate> candidates = searchCached(sourceAdapter, rawTitle, rawArtist);
         if (candidates.isEmpty()) {
             return new Resolution(null, Confidence.LOW, VersionType.OTHER,
                     List.of("平台搜索无结果"));
@@ -90,14 +87,12 @@ public class IdentityResolutionService {
 
         // 3. 打分,取最高分候选
         VersionScorer.ScoreResult best = null;
-        TrackCandidate bestCandidate = null;
         for (TrackCandidate c : candidates) {
             VersionScorer.ScoreResult r = VersionScorer.score(
                     c.title(), c.artist(), c.album(), c.durationSec(), c.popularity(),
                     rawTitle, rawArtist, null);
             if (best == null || r.score() > best.score()) {
                 best = r;
-                bestCandidate = c;
             }
         }
 
@@ -118,8 +113,28 @@ public class IdentityResolutionService {
         return new Resolution(saved, best.confidence(), best.versionType(), best.reasons());
     }
 
+    /** 带缓存的平台搜索(身份解析与版本发现共用) */
+    public List<TrackCandidate> searchCached(PlatformAdapter adapter, String title, String artist) {
+        String keyword = (title + " " + artist).trim();
+        List<TrackCandidate> cached = searchCache.get(adapter.platformId(), keyword);
+        if (cached != null) {
+            return cached;
+        }
+        List<TrackCandidate> result = adapter.search(title, artist);
+        // 空结果也缓存(短 TTL),避免对"无此歌"反复请求
+        searchCache.put(adapter.platformId(), keyword, result);
+        return result;
+    }
+
     /** 查询已保存的真实身份(按规范化键) */
     public Optional<CanonicalTrack> findByIdentity(String normalizedTitle, String normalizedArtist) {
         return canonicalTrackRepository.findByNormalizedTitleAndNormalizedArtist(normalizedTitle, normalizedArtist);
+    }
+
+    private PlatformAdapter findAdapter(String platformId) {
+        return adapters.stream()
+                .filter(a -> a.platformId().equals(platformId))
+                .findFirst()
+                .orElse(null);
     }
 }

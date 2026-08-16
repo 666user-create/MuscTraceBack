@@ -6,6 +6,7 @@ import org.example.musictraceback.adapter.dto.TrackCandidate;
 import org.example.musictraceback.domain.entity.CanonicalTrack;
 import org.example.musictraceback.domain.enums.Confidence;
 import org.example.musictraceback.domain.enums.VersionType;
+import org.example.musictraceback.infrastructure.cache.SearchCache;
 import org.example.musictraceback.infrastructure.repository.CanonicalTrackRepository;
 import org.junit.jupiter.api.Test;
 
@@ -17,24 +18,30 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 /**
- * IdentityResolutionService 测试(Mockito,无网络)。
- * 覆盖:命中缓存 / 高置信解析 / 低置信不建身份 / 空结果 / 无适配器。
+ * IdentityResolutionService 测试(Mockito + 真实 SearchCache,无网络)。
+ * 覆盖:命中缓存 / 高置信解析 / 低置信不建身份 / 空结果 / 无适配器 / 按来源平台。
  */
 class IdentityResolutionServiceTests {
 
     /** 假适配器:固定返回候选 */
     static class FakeAdapter implements PlatformAdapter {
+        final String id;
         final List<TrackCandidate> candidates;
 
-        FakeAdapter(List<TrackCandidate> candidates) {
+        FakeAdapter(String id, List<TrackCandidate> candidates) {
+            this.id = id;
             this.candidates = candidates;
         }
 
-        @Override public String platformId() { return "netease"; }
+        @Override public String platformId() { return id; }
         @Override public List<PlaylistEntryRaw> parsePlaylist(String s) { return List.of(); }
         @Override public List<TrackCandidate> search(String title, String artist) { return candidates; }
         @Override public TrackCandidate detail(String s) { return null; }
         @Override public String playUrl(String s) { return ""; }
+    }
+
+    private IdentityResolutionService service(CanonicalTrackRepository repo, List<PlatformAdapter> adapters) {
+        return new IdentityResolutionService(repo, new SearchCache(60000), adapters);
     }
 
     @Test
@@ -45,11 +52,11 @@ class IdentityResolutionServiceTests {
         when(repo.save(any(CanonicalTrack.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
-        var adapter = new FakeAdapter(List.of(
+        var adapter = new FakeAdapter("netease", List.of(
                 new TrackCandidate("2001", "晴天", "周杰伦", "叶惠美", 269, 100L, "")));
-        var service = new IdentityResolutionService(repo, List.of(adapter));
+        var service = service(repo, List.of(adapter));
 
-        var result = service.resolve("晴天", "周杰伦");
+        var result = service.resolve("晴天", "周杰伦", "netease");
 
         assertThat(result.track()).isNotNull();
         assertThat(result.track().getNormalizedTitle()).isEqualTo("晴天");
@@ -65,10 +72,10 @@ class IdentityResolutionServiceTests {
         when(repo.findByNormalizedTitleAndNormalizedArtist("晴天", "周杰伦"))
                 .thenReturn(Optional.of(existing));
 
-        // 适配器即使返回空,命中缓存也不该触发搜索
-        var service = new IdentityResolutionService(repo, List.of(new FakeAdapter(List.of())));
+        // 适配器即使返回空,命中身份缓存也不该触发搜索
+        var service = service(repo, List.of(new FakeAdapter("netease", List.of())));
 
-        var result = service.resolve("晴天", "周杰伦");
+        var result = service.resolve("晴天", "周杰伦", "netease");
 
         assertThat(result.track()).isSameAs(existing);
         assertThat(result.confidence()).isEqualTo(Confidence.HIGH);
@@ -82,11 +89,11 @@ class IdentityResolutionServiceTests {
                 .thenReturn(Optional.empty());
 
         // 完全无关的候选 → 低置信
-        var adapter = new FakeAdapter(List.of(
+        var adapter = new FakeAdapter("netease", List.of(
                 new TrackCandidate("9999", "完全不同的歌", "完全无关的人", null, null, null, "")));
-        var service = new IdentityResolutionService(repo, List.of(adapter));
+        var service = service(repo, List.of(adapter));
 
-        var result = service.resolve("晴天", "周杰伦");
+        var result = service.resolve("晴天", "周杰伦", "netease");
 
         assertThat(result.track()).isNull();
         assertThat(result.confidence()).isEqualTo(Confidence.LOW);
@@ -98,9 +105,9 @@ class IdentityResolutionServiceTests {
         CanonicalTrackRepository repo = mock(CanonicalTrackRepository.class);
         when(repo.findByNormalizedTitleAndNormalizedArtist(any(), any()))
                 .thenReturn(Optional.empty());
-        var service = new IdentityResolutionService(repo, List.of(new FakeAdapter(List.of())));
+        var service = service(repo, List.of(new FakeAdapter("netease", List.of())));
 
-        var result = service.resolve("晴天", "周杰伦");
+        var result = service.resolve("晴天", "周杰伦", "netease");
 
         assertThat(result.track()).isNull();
         assertThat(result.confidence()).isEqualTo(Confidence.LOW);
@@ -110,9 +117,9 @@ class IdentityResolutionServiceTests {
     @Test
     void resolve_noAdapter_returnsLow() {
         CanonicalTrackRepository repo = mock(CanonicalTrackRepository.class);
-        var service = new IdentityResolutionService(repo, List.of());
+        var service = service(repo, List.of());
 
-        var result = service.resolve("晴天", "周杰伦");
+        var result = service.resolve("晴天", "周杰伦", "netease");
 
         assertThat(result.track()).isNull();
         assertThat(result.confidence()).isEqualTo(Confidence.LOW);
@@ -126,15 +133,49 @@ class IdentityResolutionServiceTests {
         when(repo.save(any(CanonicalTrack.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
-        var adapter = new FakeAdapter(List.of(
+        var adapter = new FakeAdapter("netease", List.of(
                 new TrackCandidate("1001", "晴天", "某翻唱者", "cover", 200, 5L, ""),
                 new TrackCandidate("1002", "晴天", "周杰伦", "叶惠美", 269, 99L, "")));
-        var service = new IdentityResolutionService(repo, List.of(adapter));
+        var service = service(repo, List.of(adapter));
 
-        var result = service.resolve("晴天", "周杰伦");
+        var result = service.resolve("晴天", "周杰伦", "netease");
 
         assertThat(result.track()).isNotNull();
         assertThat(result.confidence()).isEqualTo(Confidence.HIGH);
         assertThat(result.judgedVersionType()).isEqualTo(VersionType.ORIGINAL);
+    }
+
+    @Test
+    void resolve_usesSourcePlatformAdapter() {
+        CanonicalTrackRepository repo = mock(CanonicalTrackRepository.class);
+        when(repo.findByNormalizedTitleAndNormalizedArtist(any(), any()))
+                .thenReturn(Optional.empty());
+        when(repo.save(any(CanonicalTrack.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        // QQ 适配器有候选,网易云为空 → 来源平台=qq 时应解析成功
+        var qqAdapter = new FakeAdapter("qq", List.of(
+                new TrackCandidate("Q1", "晴天", "周杰伦", "叶惠美", 269, 0L, "")));
+        var neteaseAdapter = new FakeAdapter("netease", List.of());
+        var service = service(repo, List.of(neteaseAdapter, qqAdapter));
+
+        var result = service.resolve("晴天", "周杰伦", "qq");
+
+        assertThat(result.track()).isNotNull();
+        assertThat(result.confidence()).isEqualTo(Confidence.HIGH);
+    }
+
+    @Test
+    void searchCached_returnsCachedResultWithoutSecondCall() {
+        CanonicalTrackRepository repo = mock(CanonicalTrackRepository.class);
+        var adapter = new FakeAdapter("netease", List.of(
+                new TrackCandidate("2001", "晴天", "周杰伦", "叶惠美", 269, 100L, "")));
+        var service = service(repo, List.of(adapter));
+
+        var first = service.searchCached(adapter, "晴天", "周杰伦");
+        var second = service.searchCached(adapter, "晴天", "周杰伦");
+
+        assertThat(first).hasSize(1);
+        assertThat(second).isSameAs(first); // 第二次命中缓存(同一 List 实例)
     }
 }

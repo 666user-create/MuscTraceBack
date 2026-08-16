@@ -52,7 +52,7 @@ public class PlaylistInjectionService {
         // 1. 识别平台
         PlatformAdapter adapter = detectPlatform(shareUrlOrId);
         if (adapter == null) {
-            throw new IllegalArgumentException("无法识别歌单平台,目前支持: 网易云(链接或 ID)");
+            throw new IllegalArgumentException("无法识别歌单平台,目前支持: 网易云 / QQ音乐 / 酷狗(粘贴分享链接)");
         }
 
         // 2. 创建快照(PROCESSING)
@@ -72,7 +72,7 @@ public class PlaylistInjectionService {
             }
             snapshot.setTitle("歌单(" + rawEntries.size() + "首)");
 
-            // 4. 逐条:身份解析 → 版本发现
+            // 4. 逐条:身份解析 → 版本发现 → 状态判定
             for (PlaylistEntryRaw raw : rawEntries) {
                 PlaylistEntry entry = PlaylistEntry.builder()
                         .snapshot(snapshot)
@@ -83,7 +83,7 @@ public class PlaylistInjectionService {
                 snapshot.addEntry(entry);
 
                 IdentityResolutionService.Resolution resolution =
-                        identityResolutionService.resolve(raw.title(), raw.artist());
+                        identityResolutionService.resolve(raw.title(), raw.artist(), adapter.platformId());
                 if (resolution.track() != null) {
                     entry.setCanonicalTrack(resolution.track());
                     entry.setConfidence(resolution.confidence());
@@ -98,6 +98,12 @@ public class PlaylistInjectionService {
                     entry.setConfidence(resolution.confidence());
                     entry.setJudgedVersionType(resolution.judgedVersionType());
                 }
+
+                // 状态判定(设计文档 FR-5):
+                //  - 身份解析成功且有原版候选 → 源平台版本可用,标记 NORMAL
+                //  - 身份解析失败(平台搜索无结果) → 源平台可能下架,标记 DELISTED(待用户确认)
+                //  - 身份解析成功但判定为翻唱/其他版本 → 标记 REPLACED(被替换)
+                markEntryStatus(entry);
             }
 
             snapshot.setStatus("COMPLETED");
@@ -108,11 +114,21 @@ public class PlaylistInjectionService {
         return snapshotRepository.save(snapshot);
     }
 
-    /** 按链接特征识别平台(当前仅网易云;QQ/酷狗在 M3 扩展) */
+    /** 按链接特征识别平台 */
     private PlatformAdapter detectPlatform(String shareUrlOrId) {
         String s = shareUrlOrId == null ? "" : shareUrlOrId.trim();
-        if (s.matches("\\d+") || s.contains("music.163.com") || s.contains("163cn.tv")) {
+        if (s.matches("\\d+")) {
+            // 纯数字 ID 无法判断平台,默认按"最近使用/首平台"处理 → 网易云
             return findAdapter("netease");
+        }
+        if (s.contains("music.163.com") || s.contains("163cn.tv") || s.contains("y.music.163.com")) {
+            return findAdapter("netease");
+        }
+        if (s.contains("y.qq.com") || s.contains("c.y.qq.com") || s.contains("i.y.qq.com")) {
+            return findAdapter("qq");
+        }
+        if (s.contains("kugou.com") || s.contains("kg.qq.com")) {
+            return findAdapter("kugou");
         }
         return null;
     }
@@ -128,6 +144,33 @@ public class PlaylistInjectionService {
     @Transactional(readOnly = true)
     public Optional<Snapshot> findById(Long id) {
         return snapshotRepository.findById(id);
+    }
+
+    /**
+     * 曲目状态判定(FR-5 下架/替换追查的基础版)。
+     *
+     * 判定规则(启发式,后续可结合平台"无版权"标记增强):
+     *  - 身份解析失败(无候选/低置信) → 源平台可能已下架 → DELISTED
+     *  - 身份解析成功但判定为翻唱/Remix/伴奏 → 歌单里的版本已被替换 → REPLACED
+     *  - 其余 → NORMAL
+     */
+    private void markEntryStatus(PlaylistEntry entry) {
+        if (entry.getCanonicalTrack() == null) {
+            entry.setEntryStatus(org.example.musictraceback.domain.enums.EntryStatus.DELISTED);
+            return;
+        }
+        switch (entry.getJudgedVersionType()) {
+            case COVER, REMIX, INSTRUMENTAL, LIVE, OTHER -> {
+                // 歌单里的原条目判定为非常见原版形态 → 可能被替换
+                if (entry.getConfidence() == org.example.musictraceback.domain.enums.Confidence.HIGH
+                        || entry.getConfidence() == org.example.musictraceback.domain.enums.Confidence.MEDIUM) {
+                    entry.setEntryStatus(org.example.musictraceback.domain.enums.EntryStatus.REPLACED);
+                } else {
+                    entry.setEntryStatus(org.example.musictraceback.domain.enums.EntryStatus.DELISTED);
+                }
+            }
+            default -> entry.setEntryStatus(org.example.musictraceback.domain.enums.EntryStatus.NORMAL);
+        }
     }
 
     /**

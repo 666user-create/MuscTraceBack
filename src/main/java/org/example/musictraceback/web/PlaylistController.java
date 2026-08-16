@@ -2,9 +2,12 @@ package org.example.musictraceback.web;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import org.example.musictraceback.application.PlaylistInjectionService;
+import org.example.musictraceback.application.UserConfirmationService;
 import org.example.musictraceback.domain.entity.PlaylistEntry;
 import org.example.musictraceback.domain.entity.Snapshot;
+import org.example.musictraceback.domain.enums.VersionType;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -19,15 +22,19 @@ import java.util.Map;
  * POST /api/playlists/import  — 注入歌单(链接/ID)
  * GET  /api/playlists/{id}    — 歌单详情(条目列表)
  * GET  /api/playlists/{id}/tracks/{entryId} — 单曲详情
+ * POST /api/playlists/tracks/{entryId}/confirm — 用户确认版本
  */
 @RestController
 @RequestMapping("/api/playlists")
 public class PlaylistController {
 
     private final PlaylistInjectionService injectionService;
+    private final UserConfirmationService confirmationService;
 
-    public PlaylistController(PlaylistInjectionService injectionService) {
+    public PlaylistController(PlaylistInjectionService injectionService,
+                              UserConfirmationService confirmationService) {
         this.injectionService = injectionService;
+        this.confirmationService = confirmationService;
     }
 
     /** 入参校验 DTO */
@@ -75,6 +82,32 @@ public class PlaylistController {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok(toTrackDetail(entry));
+    }
+
+    /** 用户确认请求体 */
+    public record ConfirmRequest(
+            @NotNull(message = "versionType 不能为空") VersionType versionType,
+            Long canonicalTrackId,
+            String chosenPlatformTrackId
+    ) {
+    }
+
+    /** 用户确认版本(第 4 层兜底) */
+    @PostMapping("/tracks/{entryId}/confirm")
+    public ResponseEntity<?> confirmTrack(@PathVariable Long entryId,
+                                          @Valid @RequestBody ConfirmRequest request) {
+        try {
+            var confirmation = confirmationService.confirm(
+                    entryId, request.canonicalTrackId(), request.chosenPlatformTrackId(), request.versionType());
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", confirmation.getId());
+            m.put("playlistEntryId", entryId);
+            m.put("versionType", confirmation.getChosenVersionType());
+            m.put("confirmedAt", confirmation.getConfirmedAt());
+            return ResponseEntity.ok(m);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 
     /** ===== DTO 组装(避免直接序列化 JPA 实体) ===== */

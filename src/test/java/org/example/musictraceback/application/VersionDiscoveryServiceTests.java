@@ -16,24 +16,32 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 /**
- * VersionDiscoveryService 测试:候选聚合、Top 3 排序、百分位计算。
+ * VersionDiscoveryService 测试:候选聚合、Top 3 排序、百分位计算、幂等。
+ * identityResolutionService.searchCached 用 mock 提供候选。
  */
 class VersionDiscoveryServiceTests {
 
     static class FakeAdapter implements PlatformAdapter {
         final String id;
-        final List<TrackCandidate> candidates;
 
-        FakeAdapter(String id, List<TrackCandidate> candidates) {
+        FakeAdapter(String id) {
             this.id = id;
-            this.candidates = candidates;
         }
 
         @Override public String platformId() { return id; }
         @Override public List<PlaylistEntryRaw> parsePlaylist(String s) { return List.of(); }
-        @Override public List<TrackCandidate> search(String title, String artist) { return candidates; }
+        @Override public List<TrackCandidate> search(String title, String artist) { return List.of(); }
         @Override public TrackCandidate detail(String s) { return null; }
         @Override public String playUrl(String s) { return "https://x/" + s; }
+    }
+
+    /** 构建服务:identityResolutionService.searchCached 返回给定候选 */
+    private VersionDiscoveryService service(PlatformVersionRepository repo,
+                                            PlatformAdapter adapter,
+                                            List<TrackCandidate> candidates) {
+        IdentityResolutionService identity = mock(IdentityResolutionService.class);
+        when(identity.searchCached(eq(adapter), any(), any())).thenReturn(candidates);
+        return new VersionDiscoveryService(repo, identity, List.of(adapter));
     }
 
     @Test
@@ -42,13 +50,14 @@ class VersionDiscoveryServiceTests {
         when(repo.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
 
         // 5 个候选:原版(高置信、热度中)、翻唱(低置信、热度高)、Live(中置信)
-        var adapter = new FakeAdapter("netease", List.of(
+        var adapter = new FakeAdapter("netease");
+        var candidates = List.of(
                 new TrackCandidate("1", "晴天", "周杰伦", "叶惠美", 269, 60L, ""),
                 new TrackCandidate("2", "晴天", "周杰伦", "叶惠美", 269, 95L, ""),
                 new TrackCandidate("3", "晴天", "某翻唱者", "cover", 200, 99L, ""),
                 new TrackCandidate("4", "晴天 (Live)", "周杰伦", "现场专辑", 300, 80L, ""),
-                new TrackCandidate("5", "晴天", "周杰伦", "叶惠美", 269, 50L, "")));
-        var service = new VersionDiscoveryService(repo, List.of(adapter));
+                new TrackCandidate("5", "晴天", "周杰伦", "叶惠美", 269, 50L, ""));
+        var service = service(repo, adapter, candidates);
 
         CanonicalTrack track = CanonicalTrack.builder()
                 .normalizedTitle("晴天").normalizedArtist("周杰伦").build();
@@ -74,11 +83,12 @@ class VersionDiscoveryServiceTests {
         PlatformVersionRepository repo = mock(PlatformVersionRepository.class);
         when(repo.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        var adapter = new FakeAdapter("netease", List.of(
+        var adapter = new FakeAdapter("netease");
+        var candidates = List.of(
                 new TrackCandidate("1", "晴天", "周杰伦", "叶惠美", 269, 50L, ""),
                 new TrackCandidate("2", "晴天", "周杰伦", "叶惠美", 269, 100L, ""),
-                new TrackCandidate("3", "晴天", "周杰伦", "叶惠美", 269, 0L, "")));
-        var service = new VersionDiscoveryService(repo, List.of(adapter));
+                new TrackCandidate("3", "晴天", "周杰伦", "叶惠美", 269, 0L, ""));
+        var service = service(repo, adapter, candidates);
 
         CanonicalTrack track = CanonicalTrack.builder()
                 .normalizedTitle("晴天").normalizedArtist("周杰伦").build();
@@ -95,7 +105,7 @@ class VersionDiscoveryServiceTests {
     @Test
     void discover_noCandidates_returnsEmpty() {
         PlatformVersionRepository repo = mock(PlatformVersionRepository.class);
-        var service = new VersionDiscoveryService(repo, List.of(new FakeAdapter("netease", List.of())));
+        var service = service(repo, new FakeAdapter("netease"), List.of());
 
         CanonicalTrack track = CanonicalTrack.builder()
                 .normalizedTitle("不存在").normalizedArtist("不存在").build();
@@ -120,10 +130,11 @@ class VersionDiscoveryServiceTests {
         CanonicalTrack track = CanonicalTrack.builder().id(1L)
                 .normalizedTitle("晴天").normalizedArtist("周杰伦").build();
 
-        var adapter = new FakeAdapter("netease", List.of(
+        var adapter = new FakeAdapter("netease");
+        var candidates = List.of(
                 new TrackCandidate("1", "晴天", "周杰伦", "叶惠美", 269, 95L, ""), // 已存在,应跳过
-                new TrackCandidate("2", "晴天", "周杰伦", "叶惠美", 269, 90L, ""))); // 新,应保留
-        var service = new VersionDiscoveryService(repo, List.of(adapter));
+                new TrackCandidate("2", "晴天", "周杰伦", "叶惠美", 269, 90L, "")); // 新,应保留
+        var service = service(repo, adapter, candidates);
 
         List<PlatformVersion> top = service.discover(track, "晴天", "周杰伦");
 
