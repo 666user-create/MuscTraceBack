@@ -32,7 +32,8 @@ class QQMusicAdapterTests {
         adapter = new QQMusicAdapter(
                 new HttpFetcher(0, 0),
                 new ObjectMapper(),
-                server.url("/").toString(),
+                server.url("/playlist").toString(),
+                server.url("/musicu").toString(),
                 "Mozilla/5.0 test"
         );
     }
@@ -44,13 +45,14 @@ class QQMusicAdapterTests {
 
     @Test
     void parsePlaylist_returnsEntries() throws Exception {
+        // 真实接口返回 JSONP 包裹的 songlist(songmid/songname/albumname 字段)
         String body = """
-                {"data":{"cdlist":[{"dissname":"我的歌单","songlist":[
-                  {"mid":"000A","name":"晴天","singer":[{"name":"周杰伦"}],"album":{"name":"叶惠美"},"interval":269},
-                  {"mid":"000B","name":"七里香","singer":[{"name":"周杰伦"},{"name":"蔡依林"}],"album":{"name":"七里香"},"interval":300}
-                ]}]}}
+                jsonCallback({"code":0,"songnum":2,"songlist":[
+                  {"songmid":"000A","songname":"晴天","singer":[{"name":"周杰伦"}],"albumname":"叶惠美","interval":269},
+                  {"songmid":"000B","songname":"七里香","singer":[{"name":"周杰伦"},{"name":"蔡依林"}],"albumname":"七里香","interval":300}
+                ]});
                 """;
-        server.enqueue(new MockResponse().setBody(body).setHeader("Content-Type", "application/json"));
+        server.enqueue(new MockResponse().setBody(body).setHeader("Content-Type", "application/javascript"));
 
         List<PlaylistEntryRaw> entries = adapter.parsePlaylist("https://y.qq.com/n/ryqq/playlist/3506837410");
 
@@ -61,7 +63,7 @@ class QQMusicAdapterTests {
         assertThat(entries.get(0).platformTrackId()).isEqualTo("000A");
 
         RecordedRequest req = server.takeRequest();
-        assertThat(req.getPath()).contains("id=3506837410");
+        assertThat(req.getPath()).contains("disstid=3506837410");
     }
 
     @Test
@@ -73,11 +75,12 @@ class QQMusicAdapterTests {
 
     @Test
     void search_returnsCandidates() throws Exception {
+        // musicu.fcg 桌面搜索:req.data.body.song.list(mid/title/album.name/interval)
         String body = """
-                {"code":0,"data":{"song":{"list":[
-                  {"songmid":"MID1","songname":"晴天","singer":[{"name":"周杰伦"}],"albumname":"叶惠美","interval":269},
-                  {"songmid":"MID2","songname":"晴天","singer":[{"name":"某翻唱者"}],"albumname":"cover","interval":240}
-                ]}}}
+                {"code":0,"req":{"data":{"body":{"song":{"list":[
+                  {"mid":"MID1","title":"晴天","singer":[{"name":"周杰伦"}],"album":{"name":"叶惠美"},"interval":269},
+                  {"mid":"MID2","title":"晴天","singer":[{"name":"某翻唱者"}],"album":{"name":"cover"},"interval":240}
+                ]}}}}}
                 """;
         server.enqueue(new MockResponse().setBody(body).setHeader("Content-Type", "application/json"));
 
@@ -88,6 +91,10 @@ class QQMusicAdapterTests {
         assertThat(songs.get(0).artist()).isEqualTo("周杰伦");
         assertThat(songs.get(0).durationSec()).isEqualTo(269);
         assertThat(songs.get(0).playUrl()).contains("MID1");
+
+        RecordedRequest req = server.takeRequest();
+        assertThat(req.getMethod()).isEqualTo("POST");
+        assertThat(req.getBody().readUtf8()).contains("SearchCgiService").contains("晴天");
     }
 
     @Test

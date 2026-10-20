@@ -11,8 +11,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -21,13 +19,13 @@ import java.util.regex.Pattern;
 /**
  * QQ 音乐适配器。
  *
- * 接口(均为 HTTP,基础地址可配置):
- *  - 歌单详情: GET {base}/v8/fcg-bin/fcg_v8_playlist_cp.fcg?id={id}&format=json&newsong=1
- *  - 搜索:     GET {base}/soso/fcgi-bin/client_search_cp?p=1&n=20&w={keyword}&format=json
+ * 接口(旧 client_search_cp / fcg_v8_playlist_cp 已于 2025 年前后下线):
+ *  - 歌单详情: GET {playlist-url}?type=1&json=1&utf8=1&onlysong=1&disstid={id}(JSONP 响应)
+ *  - 搜索:     POST {musicu-url} module=music.search.SearchCgiService(官方桌面端搜索)
  *
- * 字段差异说明:
- *  - 搜索接口返回 songname/singer[].name/interval(秒)/albumname/songmid
- *  - 歌单接口返回 name/singer[].name/interval(秒)/album.name/mid
+ * 字段说明:
+ *  - 歌单接口返回 songmid/songname/singer[].name/albumname/interval(秒)
+ *  - 搜索接口返回 mid/title/singer[].name/album.name/interval(秒)
  *  - QQ 无公开热度字段,popularity 置 0(依赖时长/歌手/标题证据打分)
  */
 @Component
@@ -38,16 +36,19 @@ public class QQMusicAdapter implements PlatformAdapter {
 
     private final HttpFetcher http;
     private final ObjectMapper mapper;
-    private final String baseUrl;
+    private final String playlistUrl;
+    private final String musicuUrl;
     private final String userAgent;
 
     public QQMusicAdapter(HttpFetcher http,
                           ObjectMapper mapper,
-                          @Value("${music.qq.base-url:http://c.y.qq.com}") String baseUrl,
+                          @Value("${music.qq.playlist-url:https://i.y.qq.com/qzone-music/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg}") String playlistUrl,
+                          @Value("${music.qq.musicu-url:https://u.y.qq.com/cgi-bin/musicu.fcg}") String musicuUrl,
                           @Value("${music.qq.user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36}") String userAgent) {
         this.http = http;
         this.mapper = mapper;
-        this.baseUrl = baseUrl.replaceAll("/+$", "");
+        this.playlistUrl = playlistUrl;
+        this.musicuUrl = musicuUrl;
         this.userAgent = userAgent;
     }
 
@@ -62,18 +63,17 @@ public class QQMusicAdapter implements PlatformAdapter {
         if (playlistId == null) {
             throw new IllegalArgumentException("无法从链接中识别 QQ 音乐歌单 ID: " + shareUrlOrId);
         }
-        String url = baseUrl + "/v8/fcg-bin/fcg_v8_playlist_cp.fcg?id=" + playlistId
-                + "&format=json&newsong=1&platform=jqspaframe.json";
+        String url = playlistUrl + "?type=1&json=1&utf8=1&onlysong=1&disstid=" + playlistId;
         try {
-            String body = http.get(url, userAgent);
-            JsonNode songs = mapper.readTree(body).path("data").path("cdlist").path(0).path("songlist");
+            String body = stripJsonp(http.get(url, userAgent));
+            JsonNode songs = mapper.readTree(body).path("songlist");
             List<PlaylistEntryRaw> result = new ArrayList<>();
             for (JsonNode s : songs) {
                 result.add(new PlaylistEntryRaw(
-                        s.path("mid").asText(s.path("id").asText()),
-                        s.path("name").asText(""),
+                        s.path("songmid").asText(s.path("songid").asText()),
+                        s.path("songname").asText(""),
                         singersName(s.path("singer")),
-                        s.path("album").path("name").asText("")
+                        s.path("albumname").asText("")
                 ));
             }
             log.info("QQ 音乐歌单 {} 解析到 {} 首", playlistId, result.size());
@@ -85,22 +85,24 @@ public class QQMusicAdapter implements PlatformAdapter {
 
     @Override
     public List<TrackCandidate> search(String title, String artist) {
-        String keyword = (title + " " + artist).trim();
-        String url = baseUrl + "/soso/fcgi-bin/client_search_cp?p=1&n=20&format=json&w="
-                + URLEncoder.encode(keyword, StandardCharsets.UTF_8);
+        String keyword = (title + " " + artist).trim()
+                .replace("\\", "\\\\").replace("\"", "\\\"");
+        String payload = """
+                {"req":{"module":"music.search.SearchCgiService","method":"DoSearchForQQMusicDesktop",\
+                "param":{"num_per_page":20,"page_num":1,"query":"%s","search_type":0}}}""" .formatted(keyword);
         try {
-            String body = http.get(url, userAgent);
-            JsonNode songs = mapper.readTree(body).path("data").path("song").path("list");
+            String body = http.post(musicuUrl, payload, userAgent);
+            JsonNode songs = mapper.readTree(body).path("req").path("data").path("body").path("song").path("list");
             List<TrackCandidate> result = new ArrayList<>();
             for (JsonNode s : songs) {
                 result.add(new TrackCandidate(
-                        s.path("songmid").asText(s.path("songid").asText()),
-                        s.path("songname").asText(""),
+                        s.path("mid").asText(s.path("id").asText()),
+                        s.path("title").asText(""),
                         singersName(s.path("singer")),
-                        s.path("albumname").asText(""),
+                        s.path("album").path("name").asText(""),
                         s.path("interval").isNumber() ? s.path("interval").asInt() : null,
                         0L, // QQ 无公开热度
-                        playUrl(s.path("songmid").asText())
+                        playUrl(s.path("mid").asText())
                 ));
             }
             return result;
@@ -110,6 +112,22 @@ public class QQMusicAdapter implements PlatformAdapter {
             log.warn("QQ 音乐搜索失败 keyword={}: {}", keyword, e.getMessage());
             return List.of();
         }
+    }
+
+    /** JSONP 剥壳:jsonCallback({...}); → {...} */
+    static String stripJsonp(String body) {
+        if (body == null) {
+            return null;
+        }
+        String s = body.trim();
+        if (s.endsWith(";")) {
+            s = s.substring(0, s.length() - 1).trim();
+        }
+        int open = s.indexOf('(');
+        if (open >= 0 && s.endsWith(")")) {
+            return s.substring(open + 1, s.length() - 1).trim();
+        }
+        return s;
     }
 
     @Override

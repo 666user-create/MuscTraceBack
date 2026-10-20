@@ -64,9 +64,12 @@ java -jar target/MusicTraceBack-*.jar
 |---|---|---|
 | `music.http.min-interval-ms` | 800 | 同平台连续请求最小间隔,降低风控概率 |
 | `music.http.cooldown-ms` | 600000 | 平台风控(406)后冷却期,期间跳过该平台,自动恢复 |
+| `music.http.failure-threshold` | 3 | 断路器阈值:同主机连续失败该次数后进入短暂不可用期 |
+| `music.http.failure-cooldown-ms` | 120000 | 断路器不可用期,期间该平台请求快速跳过(不发网络调用) |
 | `music.cache.search-ttl-ms` | 600000 | 搜索缓存有效期(10 分钟) |
 | `music.netease.base-url` | `http://music.163.com` | 网易云接口地址 |
-| `music.qq.base-url` | `http://c.y.qq.com` | QQ 音乐接口地址 |
+| `music.qq.playlist-url` | `https://i.y.qq.com/qzone-music/...fcg_ucc_getcdinfo_byids_cp.fcg` | QQ 音乐歌单接口 |
+| `music.qq.musicu-url` | `https://u.y.qq.com/cgi-bin/musicu.fcg` | QQ 音乐搜索接口(官方桌面端) |
 | `music.kugou.base-url` | `http://mobilecdn.kugou.com` | 酷狗接口地址 |
 
 > 网络受限环境下接口地址可替换为自托管的第三方 API 服务
