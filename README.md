@@ -122,6 +122,7 @@ mvn -s settings-local.xml test
 
 ## 文档
 
+- **功能说明(推荐先看)**:`docs/功能说明.md` — 功能清单 / 核心概念 / API / 架构 / 已知限制
 - 产品设计:`docs/superpowers/specs/2026-08-16-musictraceback-design.md`
 - 实现计划:`docs/superpowers/plans/2026-08-16-musictraceback-implementation-plan.md`
 
