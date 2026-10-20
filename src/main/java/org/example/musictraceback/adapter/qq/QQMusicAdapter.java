@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -78,6 +79,8 @@ public class QQMusicAdapter implements PlatformAdapter {
             }
             log.info("QQ 音乐歌单 {} 解析到 {} 首", playlistId, result.size());
             return result;
+        } catch (HttpFetcher.RateLimitedException e) {
+            throw e; // 风控:向上抛,由编排层暂停等冷却
         } catch (Exception e) {
             throw new IllegalStateException("QQ 音乐歌单解析失败: " + e.getMessage(), e);
         }
@@ -85,12 +88,13 @@ public class QQMusicAdapter implements PlatformAdapter {
 
     @Override
     public List<TrackCandidate> search(String title, String artist) {
-        String keyword = (title + " " + artist).trim()
-                .replace("\\", "\\\\").replace("\"", "\\\"");
-        String payload = """
-                {"req":{"module":"music.search.SearchCgiService","method":"DoSearchForQQMusicDesktop",\
-                "param":{"num_per_page":20,"page_num":1,"query":"%s","search_type":0}}}""" .formatted(keyword);
+        String keyword = (title + " " + artist).trim();
         try {
+            // 用 Jackson 序列化请求体,避免手工拼接遇到引号/控制字符时产生非法 JSON
+            String payload = mapper.writeValueAsString(Map.of("req", Map.of(
+                    "module", "music.search.SearchCgiService",
+                    "method", "DoSearchForQQMusicDesktop",
+                    "param", Map.of("num_per_page", 20, "page_num", 1, "query", keyword, "search_type", 0))));
             String body = http.post(musicuUrl, payload, userAgent);
             JsonNode songs = mapper.readTree(body).path("req").path("data").path("body").path("song").path("list");
             List<TrackCandidate> result = new ArrayList<>();

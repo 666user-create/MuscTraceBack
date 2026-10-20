@@ -2,15 +2,16 @@ package org.example.musictraceback.infrastructure.http;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -54,7 +55,7 @@ public class HttpFetcher {
         this(minIntervalMillis, cooldownMillis, 3, 120_000);
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public HttpFetcher(@Value("${music.http.min-interval-ms:800}") long minIntervalMillis,
                        @Value("${music.http.cooldown-ms:600000}") long cooldownMillis,
                        @Value("${music.http.failure-threshold:3}") int failureThreshold,
